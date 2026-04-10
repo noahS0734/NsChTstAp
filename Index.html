@@ -1,1 +1,357 @@
+```html
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>מעקב מזומן</title>
+    
+    <!-- PWA Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#2563eb">
+    
+    <link rel="manifest" href="data:application/manifest+json,{'name':'מעקב מזומן','short_name':'מזומן','start_url':'.','display':'standalone','background_color':'#2563eb','theme_color':'#2563eb'}">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & Libraries -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Firebase (Compact SDK for easier script access) -->
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;600;700;800&display=swap');
+        body { 
+            font-family: 'Assistant', sans-serif; 
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .modal-overlay { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); }
+        input, button { outline: none !important; }
+        .safe-bottom { padding-bottom: env(safe-area-inset-bottom, 20px); }
+    </style>
+</head>
+<body class="bg-gray-50 overflow-x-hidden">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+
+        // --- Configuration Handling ---
+        let firebaseConfig = {};
+        try {
+            firebaseConfig = window.__firebase_config ? JSON.parse(window.__firebase_config) : {
+                apiKey: "", 
+                authDomain: "",
+                projectId: "",
+                storageBucket: "",
+                messagingSenderId: "",
+                appId: ""
+            };
+        } catch(e) { console.error("Config error", e); }
+
+        const APP_ID = window.__app_id || 'cash-tracker-v1';
+        const DEFAULT_CATEGORIES = ['מזון', 'דלק', 'חשבונות', 'קניות', 'בילוי', 'בריאות'];
+
+        // Simple SVG Icons to avoid external Lucide dependency issues
+        const Icons = {
+            Plus: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg>,
+            Wallet: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-3.33"/><path d="M16 12h5"/></svg>,
+            Up: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 17L17 7"/><path d="M7 7h10v10"/></svg>,
+            Down: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 7L7 17"/><path d="M17 17H7V7"/></svg>,
+            Users: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="19" cy="11" r="3"/></svg>,
+            History: () => <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>,
+            X: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="M6 6l12 12"/></svg>,
+            Trash: () => <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>
+        };
+
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [db, setDb] = useState(null);
+            const [activeTab, setActiveTab] = useState('dashboard');
+            const [isModalOpen, setIsModalOpen] = useState(null);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
+            const [cashTransactions, setCashTransactions] = useState([]);
+            const [loansGiven, setLoansGiven] = useState([]);
+            const [myDebts, setMyDebts] = useState([]);
+            const [selectedCategory, setSelectedCategory] = useState('');
+            const [isLoanToggle, setIsLoanToggle] = useState(false);
+            const [isSaving, setIsSaving] = useState(false);
+            const [loading, setLoading] = useState(true);
+
+            // 1. Initialize Firebase
+            useEffect(() => {
+                try {
+                    if (!firebase.apps.length) {
+                        firebase.initializeApp(firebaseConfig);
+                    }
+                    const auth = firebase.auth();
+                    const firestore = firebase.firestore();
+                    setDb(firestore);
+
+                    auth.onAuthStateChanged(async (u) => {
+                        if (u) {
+                            setUser(u);
+                        } else {
+                            if (window.__initial_auth_token) {
+                                await auth.signInWithCustomToken(window.__initial_auth_token);
+                            } else {
+                                await auth.signInAnonymously();
+                            }
+                        }
+                    });
+                } catch(err) {
+                    console.error("Firebase Init Error:", err);
+                    setLoading(false);
+                }
+            }, []);
+
+            // 2. Real-time Listeners
+            useEffect(() => {
+                if (!user || !db) return;
+                const userRef = db.collection('artifacts').doc(APP_ID).collection('users').doc(user.uid);
+
+                const unsub1 = userRef.collection('cash_transactions').onSnapshot(s => {
+                    const data = s.docs.map(d => ({id: d.id, ...d.data()}));
+                    setCashTransactions(data.sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp)));
+                    setLoading(false);
+                });
+                const unsub2 = userRef.collection('loans_given').onSnapshot(s => setLoansGiven(s.docs.map(d => ({id: d.id, ...d.data()}))));
+                const unsub3 = userRef.collection('my_debts').onSnapshot(s => setMyDebts(s.docs.map(d => ({id: d.id, ...d.data()}))));
+                const unsub4 = userRef.collection('categories').onSnapshot(s => {
+                    const custom = s.docs.map(d => d.data().name);
+                    setCategories(Array.from(new Set([...DEFAULT_CATEGORIES, ...custom])));
+                });
+
+                return () => { unsub1(); unsub2(); unsub3(); unsub4(); };
+            }, [user, db]);
+
+            // Calculations
+            const stats = useMemo(() => {
+                const ins = cashTransactions.filter(t => t.type === 'in').reduce((s,t) => s + Number(t.amount), 0);
+                const outs = cashTransactions.filter(t => t.type === 'out').reduce((s,t) => s + Number(t.amount), 0);
+                const loans = loansGiven.filter(l => l.status !== 'paid').reduce((s,l) => s + (l.amount - (l.paidAmount || 0)), 0);
+                const debts = myDebts.filter(d => d.status !== 'paid').reduce((s,d) => s + d.amount, 0);
+                return { cash: ins - outs, ins, outs, loans, debts };
+            }, [cashTransactions, loansGiven, myDebts]);
+
+            // Database Actions
+            const addAction = async (t) => {
+                const userRef = db.collection('artifacts').doc(APP_ID).collection('users').doc(user.uid);
+                await userRef.collection('cash_transactions').add({
+                    ...t, 
+                    timestamp: new Date().toISOString(),
+                    date: new Date().toLocaleDateString('he-IL')
+                });
+                if (t.category && !categories.includes(t.category)) {
+                    await userRef.collection('categories').add({ name: t.category });
+                }
+            };
+
+            const markPaid = async (loan, partial = 0) => {
+                const userRef = db.collection('artifacts').doc(APP_ID).collection('users').doc(user.uid);
+                const amount = partial > 0 ? Number(partial) : (loan.amount - (loan.paidAmount || 0));
+                const newPaid = (loan.paidAmount || 0) + amount;
+                await userRef.collection('loans_given').doc(loan.id).update({
+                    paidAmount: newPaid,
+                    status: newPaid >= loan.amount ? 'paid' : 'partial',
+                    returnDate: newPaid >= loan.amount ? new Date().toLocaleDateString('he-IL') : null
+                });
+                await addAction({ amount, type: 'in', description: `החזר מ${loan.name}`, category: 'הלוואות' });
+            };
+
+            const deleteDoc = async (coll, id) => {
+                if(!confirm('למחוק לצמיתות?')) return;
+                await db.collection('artifacts').doc(APP_ID).collection('users').doc(user.uid).collection(coll).doc(id).delete();
+            };
+
+            if (!user && loading) return (
+                <div className="h-screen flex flex-col items-center justify-center bg-blue-600 text-white p-10 text-center">
+                    <div className="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin mb-4"></div>
+                    <p className="font-bold text-lg">טוען ארנק ענן...</p>
+                </div>
+            );
+
+            return (
+                <div className="flex flex-col min-h-screen max-w-md mx-auto relative bg-gray-50 pb-24">
+                    {/* Header */}
+                    <header className="bg-blue-600 text-white p-6 pt-10 rounded-b-[2.5rem] shadow-xl sticky top-0 z-30">
+                        <div className="flex justify-between items-center mb-6">
+                            <h1 className="text-xl font-bold flex items-center gap-2"><Icons.Wallet /> מעקב מזומן</h1>
+                        </div>
+                        <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20">
+                            <p className="text-blue-100 text-xs mb-1">יתרה בקופה</p>
+                            <h2 className="text-4xl font-black">₪{stats.cash.toLocaleString()}</h2>
+                            <div className="flex gap-4 mt-4 text-[10px] font-bold">
+                                <span className="text-green-300">הכנסות: ₪{stats.ins.toLocaleString()}</span>
+                                <span className="text-red-300">הוצאות: ₪{stats.outs.toLocaleString()}</span>
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Quick Actions */}
+                    <div className="px-4 -mt-5 relative z-40 flex gap-2 overflow-x-auto no-scrollbar pb-4">
+                        <button onClick={() => { setIsModalOpen('expense'); setSelectedCategory(''); }} className="flex-shrink-0 bg-red-500 text-white px-5 py-3 rounded-2xl font-bold shadow-lg flex items-center gap-2 active:scale-95 transition-all"><Icons.Up /> הוצאה</button>
+                        <button onClick={() => setIsModalOpen('loan')} className="flex-shrink-0 bg-blue-600 text-white px-5 py-3 rounded-2xl font-bold shadow-lg flex items-center gap-2 active:scale-95 transition-all"><Icons.Plus /> הלוואה</button>
+                        <button onClick={() => setIsModalOpen('cashIn')} className="flex-shrink-0 bg-green-600 text-white px-5 py-3 rounded-2xl font-bold shadow-lg flex items-center gap-2 active:scale-95 transition-all"><Icons.Down /> הכנסה</button>
+                    </div>
+
+                    {/* Tabs Navigation */}
+                    <div className="px-4 mb-4">
+                        <div className="flex bg-gray-200 p-1 rounded-xl">
+                            {['dashboard', 'loans', 'debts'].map(t => (
+                                <button key={t} onClick={() => setActiveTab(t)} className={`flex-1 py-2 text-xs font-bold rounded-lg ${activeTab === t ? 'bg-white shadow text-blue-600' : 'text-gray-500'}`}>
+                                    {t === 'dashboard' ? 'תנועות' : t === 'loans' ? 'חובות אלי' : 'חובות שלי'}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Content List */}
+                    <main className="px-4">
+                        {activeTab === 'dashboard' && cashTransactions.map(t => (
+                            <div key={t.id} className="bg-white p-4 rounded-xl shadow-sm border mb-2 flex items-center justify-between group animate-fade-in">
+                                <div className="flex items-center gap-3">
+                                    <div className={`p-2 rounded-full ${t.type === 'in' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                                        {t.type === 'in' ? <Icons.Down /> : <Icons.Up />}
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-sm leading-none mb-1">{t.description}</p>
+                                        <p className="text-[10px] text-gray-400">{t.category} • {t.date}</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <span className={`font-black ${t.type === 'in' ? 'text-green-600' : 'text-red-600'}`}>₪{t.amount.toLocaleString()}</span>
+                                    <button onClick={() => deleteDoc('cash_transactions', t.id)} className="text-gray-200 hover:text-red-500"><Icons.Trash /></button>
+                                </div>
+                            </div>
+                        ))}
+                        {activeTab === 'loans' && loansGiven.map(l => (
+                            <div key={l.id} className={`bg-white rounded-xl shadow-sm border mb-3 overflow-hidden ${l.status === 'paid' ? 'opacity-50' : ''}`}>
+                                <div className="p-4 flex justify-between">
+                                    <div><p className="font-bold">{l.name}</p><p className="text-xs text-gray-400">יעד: {l.dueDate}</p></div>
+                                    <div className="text-left"><p className="font-black text-blue-600 text-lg">₪{l.amount.toLocaleString()}</p></div>
+                                </div>
+                                {l.status !== 'paid' && (
+                                    <div className="flex border-t">
+                                        <button onClick={() => markPaid(l)} className="flex-1 py-2 text-xs font-bold text-green-600 bg-green-50">החזר מלא</button>
+                                        <button onClick={() => {const a = prompt('סכום:'); if(a) markPaid(l, a);}} className="flex-1 py-2 text-xs font-bold text-orange-600 border-r">חלקי</button>
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                        {activeTab === 'debts' && myDebts.map(d => (
+                            <div key={d.id} className="bg-white p-4 rounded-xl shadow-sm border mb-2 flex justify-between items-center">
+                                <div><p className="font-bold">{d.name}</p><p className="text-xs text-gray-400">יעד: {d.dueDate}</p></div>
+                                <div className="flex items-center gap-3">
+                                    <span className="font-black text-red-600">₪{d.amount.toLocaleString()}</span>
+                                    {d.status !== 'paid' && <button onClick={() => { 
+                                        db.collection('artifacts').doc(APP_ID).collection('users').doc(user.uid).collection('my_debts').doc(d.id).update({status:'paid'});
+                                        addAction({amount: d.amount, type:'out', description:`החזר חוב ל${d.name}`, category:'חובות'});
+                                    }} className="bg-purple-600 text-white px-3 py-1 rounded-lg text-[10px] font-bold">סגור</button>}
+                                </div>
+                            </div>
+                        ))}
+                    </main>
+
+                    {/* Modals */}
+                    {isModalOpen && (
+                        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+                            <div className="absolute inset-0 modal-overlay" onClick={() => setIsModalOpen(null)}></div>
+                            <div className="bg-white w-full max-w-sm rounded-t-[2.5rem] sm:rounded-[2rem] p-6 shadow-2xl relative z-50 animate-in slide-in-from-bottom duration-300">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="font-bold text-xl">{isModalOpen === 'expense' ? 'הוצאה' : isModalOpen === 'loan' ? 'הלוואה' : 'הכנסה'}</h3>
+                                    <button onClick={() => setIsModalOpen(null)}><Icons.X /></button>
+                                </div>
+                                <form onSubmit={async (e) => {
+                                    e.preventDefault();
+                                    const fd = new FormData(e.target);
+                                    const amount = Number(fd.get('amount'));
+                                    const desc = fd.get('desc');
+                                    setIsSaving(true);
+                                    try {
+                                        if(isModalOpen === 'expense') {
+                                            await addAction({ amount, type:'out', description: desc, category: selectedCategory || fd.get('cat') });
+                                        } else if(isModalOpen === 'loan') {
+                                            await db.collection('artifacts').doc(APP_ID).collection('users').doc(user.uid).collection('loans_given').add({
+                                                name: desc, amount, dueDate: fd.get('due'), status:'open', paidAmount: 0, timestamp: new Date().toISOString(), dateGiven: new Date().toLocaleDateString('he-IL')
+                                            });
+                                            await addAction({ amount, type:'out', description: `הלוואה ל${desc}`, category:'הלוואות' });
+                                        } else if(isModalOpen === 'cashIn') {
+                                            await addAction({ amount, type:'in', description: desc, category: isLoanToggle ? 'חוב שקיבלתי' : 'הכנסה לקופה' });
+                                            if(isLoanToggle) {
+                                                await db.collection('artifacts').doc(APP_ID).collection('users').doc(user.uid).collection('my_debts').add({
+                                                    name: desc, amount, dueDate: fd.get('due'), status:'open', timestamp: new Date().toISOString()
+                                                });
+                                            }
+                                        }
+                                        setIsModalOpen(null);
+                                        setIsLoanToggle(false);
+                                    } finally { setIsSaving(false); }
+                                }} className="space-y-4">
+                                    <input name="amount" type="number" placeholder="סכום" required className="w-full p-4 bg-gray-100 rounded-2xl outline-none text-xl font-bold text-center" />
+                                    <input name="desc" placeholder="תיאור" required className="w-full p-4 bg-gray-100 rounded-2xl outline-none" />
+                                    
+                                    {isModalOpen === 'expense' && (
+                                        <div className="space-y-2">
+                                            <div className="flex flex-wrap gap-2">
+                                                {categories.map(c => (
+                                                    <button key={c} type="button" onClick={() => setSelectedCategory(c)} className={`px-3 py-1 rounded-full text-xs font-bold border ${selectedCategory === c ? 'bg-red-500 text-white' : 'bg-gray-50'}`}>{c}</button>
+                                                ))}
+                                            </div>
+                                            {!selectedCategory && <input name="cat" placeholder="קטגוריה חדשה" className="w-full p-2 border-b text-sm" />}
+                                        </div>
+                                    )}
+
+                                    {isModalOpen === 'cashIn' && (
+                                        <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl cursor-pointer">
+                                            <input type="checkbox" checked={isLoanToggle} onChange={e => setIsLoanToggle(e.target.checked)} className="w-5 h-5" />
+                                            <span className="text-sm font-bold">זו הלוואה שצריך להחזיר</span>
+                                        </label>
+                                    )}
+
+                                    {(isModalOpen === 'loan' || isLoanToggle) && (
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold text-gray-400">תאריך יעד</label>
+                                            <input name="due" type="date" required className="w-full p-4 bg-gray-100 rounded-2xl outline-none" />
+                                        </div>
+                                    )}
+
+                                    <button type="submit" disabled={isSaving} className="w-full py-4 rounded-2xl bg-blue-600 text-white font-bold text-lg disabled:bg-gray-400 shadow-lg">
+                                        {isSaving ? 'שומר...' : 'בצע פעולה'}
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Bottom Tab Bar */}
+                    <nav className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-md border-t flex justify-around p-3 safe-bottom shadow-inner z-40">
+                        <button onClick={() => setActiveTab('dashboard')} className={`p-2 flex flex-col items-center ${activeTab === 'dashboard' ? 'text-blue-600' : 'text-gray-400'}`}><Icons.History /><span className="text-[10px] mt-1 font-bold">תנועות</span></button>
+                        <button onClick={() => setActiveTab('loans')} className={`p-2 flex flex-col items-center ${activeTab === 'loans' ? 'text-blue-600' : 'text-gray-400'}`}><Icons.Users /><span className="text-[10px] mt-1 font-bold">חובות אלי</span></button>
+                        <button onClick={() => setActiveTab('debts')} className={`p-2 flex flex-col items-center ${activeTab === 'debts' ? 'text-blue-600' : 'text-gray-400'}`}><Icons.History /><span className="text-[10px] mt-1 font-bold">חובות שלי</span></button>
+                    </nav>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
+
+```
+
 
