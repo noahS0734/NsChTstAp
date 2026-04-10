@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Titan Finance OS - Master Edition</title>
+    <title>Titan Finance OS - Grouping Edition</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -15,9 +15,9 @@
         body { font-family: 'Assistant', sans-serif; -webkit-tap-highlight-color: transparent; transition: all 0.3s; }
         .dark { background-color: #0f172a; color: white; }
         .modal-bg { background: rgba(0,0,0,0.8); backdrop-filter: blur(12px); }
-        .card { background: white; border-radius: 2rem; box-shadow: 0 4px 20px -5px rgba(0,0,0,0.05); }
+        .card { background: white; border-radius: 2rem; box-shadow: 0 4px 25px -5px rgba(0,0,0,0.1); }
         .dark .card { background: #1e293b; border: 1px solid #334155; }
-        .active-tab { background-color: #2563eb; color: white; transform: scale(1.05); }
+        .active-tab { background-color: #2563eb; color: white; transform: scale(1.02); }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .urgent-pulse { border: 2px solid #ef4444; animation: pulse-red 2s infinite; }
         @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
@@ -31,21 +31,16 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        const STORAGE_KEY = 'titan_finance_master_v1';
+        const STORAGE_KEY = 'titan_finance_grouping_v1';
         const EXCHANGE_RATES = { ILS: 1, USD: 3.7, EUR: 4.0, GEL: 1.4 };
 
         const App = () => {
             const [darkMode, setDarkMode] = useState(false);
             const [activeTab, setActiveTab] = useState('dashboard');
             const [searchQuery, setSearchQuery] = useState('');
-            const [dateFilter, setDateFilter] = useState('month');
-            
             const [transactions, setTransactions] = useState([]);
             const [loans, setLoans] = useState([]); 
             const [debts, setDebts] = useState([]); 
-            const [savings, setSavings] = useState([]);
-            const [categories, setCategories] = useState(['מזון', 'דלק', 'קניות', 'בילוי', 'בריאות']);
-            
             const [isModalOpen, setIsModalOpen] = useState(null);
             const [selectedCategory, setSelectedCategory] = useState('');
             const [partialData, setPartialData] = useState(null);
@@ -58,8 +53,6 @@
                     setTransactions(d.transactions || []);
                     setLoans(d.loans || []);
                     setDebts(d.debts || []);
-                    setSavings(d.savings || []);
-                    setCategories(d.categories || ['מזון', 'דלק', 'קניות', 'בילוי', 'בריאות']);
                     setDarkMode(d.darkMode || false);
                 }
                 setLoading(false);
@@ -67,92 +60,110 @@
 
             useEffect(() => {
                 if (!loading) {
-                    localStorage.setItem(STORAGE_KEY, JSON.stringify({ transactions, loans, debts, savings, categories, darkMode }));
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify({ transactions, loans, debts, darkMode }));
                     document.body.classList.toggle('dark', darkMode);
                 }
-            }, [transactions, loans, debts, savings, categories, darkMode, loading]);
+            }, [transactions, loans, debts, darkMode, loading]);
+
+            // פונקציית הקיבוץ (Grouping)
+            const groupData = (data) => {
+                const groups = {};
+                data.filter(i => i.status !== 'paid').forEach(item => {
+                    if (!groups[item.name]) {
+                        groups[item.name] = { ...item, totalAmount: 0, totalPaid: 0, items: [] };
+                    }
+                    groups[item.name].totalAmount += item.amount;
+                    groups[item.name].totalPaid += (item.paidAmount || 0);
+                    groups[item.name].items.push(item);
+                    // שומרים את תאריך היעד המוקדם ביותר עבור הקבוצה
+                    if (new Date(item.dueDate) < new Date(groups[item.name].dueDate)) {
+                        groups[item.name].dueDate = item.dueDate;
+                    }
+                });
+                return Object.values(groups);
+            };
 
             const stats = useMemo(() => {
-                const now = new Date();
-                const filteredT = transactions.filter(t => {
-                    if (dateFilter === 'all') return true;
-                    const d = new Date(t.timestamp);
-                    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-                });
-
-                const ins = filteredT.filter(t => t.type === 'in').reduce((s, t) => s + t.amount, 0);
-                const outs = filteredT.filter(t => t.type === 'out').reduce((s, t) => s + t.amount, 0);
-                
-                const catTotals = {};
-                filteredT.filter(t => t.type === 'out').forEach(t => {
-                    catTotals[t.category] = (catTotals[t.category] || 0) + t.amount;
-                });
-
+                const ins = transactions.filter(t => t.type === 'in').reduce((s, t) => s + t.amount, 0);
+                const outs = transactions.filter(t => t.type === 'out').reduce((s, t) => s + t.amount, 0);
                 const lSum = loans.filter(l => l.status !== 'paid').reduce((s, l) => s + (l.amount - (l.paidAmount || 0)), 0);
                 const dSum = debts.filter(d => d.status !== 'paid').reduce((s, d) => s + (d.amount - (d.paidAmount || 0)), 0);
                 
-                const allOpen = [...loans.map(l=>({...l, type:'loan'})), ...debts.map(d=>({...d, type:'debt'}))].filter(i=>i.status!=='paid');
+                const groupedLoans = groupData(loans);
+                const groupedDebts = groupData(debts);
+                
+                const allOpen = [...groupedLoans.map(l=>({...l, type:'loan'})), ...groupedDebts.map(d=>({...d, type:'debt'}))];
                 const urgent = allOpen.sort((a,b) => new Date(a.dueDate) - new Date(b.dueDate))[0];
 
-                return { balance: ins - outs, ins, outs, catTotals, lSum, dSum, urgent };
-            }, [transactions, loans, debts, dateFilter]);
+                return { balance: ins - outs, lSum, dSum, urgent, groupedLoans, groupedDebts };
+            }, [transactions, loans, debts]);
 
-            const handleSave = (e) => {
+            const handleSaveTransaction = (e) => {
                 e.preventDefault();
                 const fd = new FormData(e.target);
                 const amount = Number(fd.get('amount'));
-                const currency = fd.get('currency') || 'ILS';
-                const rate = EXCHANGE_RATES[currency] || 1;
-                const totalAmountInIls = amount * rate;
+                const rate = EXCHANGE_RATES[fd.get('currency')] || 1;
+                const totalAmount = amount * rate;
                 
-                const customCat = fd.get('custom_cat');
-                const finalCategory = selectedCategory || customCat || 'כללי';
-                
-                if (customCat && !categories.includes(customCat)) setCategories(prev => [...prev, customCat]);
-
                 if (isModalOpen === 'loan') {
-                    const isDebt = fd.get('isDebt') === 'on';
-                    const loanObj = { id: Date.now(), name: fd.get('desc'), amount: totalAmountInIls, paidAmount: 0, dueDate: fd.get('due'), status: 'open', priority: fd.get('priority') === 'on' };
-                    if (isDebt) setDebts(p => [loanObj, ...p]); else setLoans(p => [loanObj, ...p]);
-                    // יצירת תנועת מזומן מקבילה
-                    setTransactions(p => [{ id: Date.now()+1, amount: totalAmountInIls, description: `${isDebt?'חוב מ':'הלוואה ל'}: ${fd.get('desc')}`, type: isDebt?'in':'out', category: 'חובות/הלוואות', timestamp: new Date().toISOString() }, ...p]);
-                } else if (isModalOpen === 'saving') {
-                    setSavings(p => [{ id: Date.now(), name: fd.get('desc'), target: totalAmountInIls, current: 0 }, ...p]);
+                    const isIncomingDebt = fd.get('isDebt') === 'on';
+                    const loanObj = {
+                        id: Date.now(),
+                        name: fd.get('desc'), // השם משמש לקיבוץ
+                        amount: totalAmount,
+                        paidAmount: 0,
+                        dueDate: fd.get('due'),
+                        status: 'open',
+                        priority: fd.get('priority') === 'on'
+                    };
+                    if (isIncomingDebt) setDebts(p => [loanObj, ...p]);
+                    else setLoans(p => [loanObj, ...p]);
                 } else {
-                    setTransactions(p => [{ id: Date.now(), amount: totalAmountInIls, description: fd.get('desc'), type: isModalOpen === 'income' ? 'in' : 'out', category: finalCategory, timestamp: new Date().toISOString() }, ...p]);
+                    setTransactions(p => [{
+                        id: Date.now(),
+                        amount: totalAmount,
+                        description: fd.get('desc'),
+                        category: selectedCategory || fd.get('custom_cat') || 'כללי',
+                        type: isModalOpen === 'income' ? 'in' : 'out',
+                        timestamp: new Date().toISOString()
+                    }, ...p]);
                 }
-                setIsModalOpen(null); setSelectedCategory('');
+                setIsModalOpen(null);
+                setSelectedCategory('');
             };
 
             const handlePartial = (e) => {
                 e.preventDefault();
                 const amount = Number(new FormData(e.target).get('pAmount'));
                 const { item, type } = partialData;
+                
+                // בקיבוץ, אנחנו מחזירים כסף לפי סדר החובות הישנים ביותר של אותו אדם
+                const updateList = (list) => {
+                    let remainingToPay = amount;
+                    return list.map(i => {
+                        if (i.name === item.name && i.status !== 'paid' && remainingToPay > 0) {
+                            const stillOwed = i.amount - (i.paidAmount || 0);
+                            const paymentForThisItem = Math.min(stillOwed, remainingToPay);
+                            const newPaid = (i.paidAmount || 0) + paymentForThisItem;
+                            remainingToPay -= paymentForThisItem;
+                            return { ...i, paidAmount: newPaid, status: newPaid >= i.amount ? 'paid' : 'open' };
+                        }
+                        return i;
+                    });
+                };
 
-                const updateFn = (list) => list.map(i => {
-                    if (i.id === item.id) {
-                        const newPaid = (i.paidAmount || 0) + amount;
-                        return { ...i, paidAmount: newPaid, status: newPaid >= i.amount ? 'paid' : 'open' };
-                    }
-                    return i;
-                });
-
-                if (type === 'loan') {
-                    setLoans(updateFn);
-                    setTransactions(p => [{ id: Date.now(), amount, description: `החזר הלוואה: ${item.name}`, category: 'הלוואות', type: 'in', timestamp: new Date().toISOString() }, ...p]);
-                } else {
-                    setDebts(updateFn);
-                    setTransactions(p => [{ id: Date.now(), amount, description: `תשלום חוב: ${item.name}`, category: 'חובות', type: 'out', timestamp: new Date().toISOString() }, ...p]);
-                }
-                setPartialData(null); setIsModalOpen(null);
+                if (type === 'loan') setLoans(updateList); else setDebts(updateList);
+                
+                setTransactions(p => [{ id: Date.now(), amount, description: `החזר מרוכז: ${item.name}`, category: 'חובות', type: type === 'loan' ? 'in' : 'out', timestamp: new Date().toISOString() }, ...p]);
+                setPartialData(null);
+                setIsModalOpen(null);
             };
 
             if (loading) return null;
 
             return (
-                <div className="max-w-md mx-auto min-h-screen pb-28 relative overflow-x-hidden">
-                    {/* Header - Fixed & Clean */}
-                    <header className="bg-blue-600 p-6 pt-12 shadow-xl text-white text-right">
+                <div className="max-w-md mx-auto min-h-screen pb-28 relative">
+                    <header className="bg-blue-600 p-8 pt-12 rounded-b-[3rem] shadow-2xl sticky top-0 z-30 text-white text-right">
                         <div className="flex justify-between items-center mb-6">
                             <h1 className="text-2xl font-black italic tracking-tighter">TITAN OS</h1>
                             <button onClick={() => setDarkMode(!darkMode)} className="p-3 bg-white/10 rounded-2xl">{darkMode ? '☀️' : '🌙'}</button>
@@ -160,12 +171,12 @@
                         <div className="bg-white/10 backdrop-blur-xl rounded-[2rem] p-6 border border-white/20">
                             <div className="flex justify-between items-center">
                                 <div className="text-right">
-                                    <p className="text-blue-100 text-[10px] font-black uppercase tracking-widest">יתרה כוללת</p>
+                                    <p className="text-blue-100 text-[10px] font-black uppercase tracking-widest">יתרת מזומן</p>
                                     <h2 className="text-4xl font-black">₪{stats.balance.toLocaleString()}</h2>
                                 </div>
                                 {stats.urgent && (
-                                    <div className="bg-red-500/20 p-2 rounded-xl border border-red-400/30 text-[9px] font-bold text-center">
-                                        <p className="text-red-200">דחוף! ⏳</p>
+                                    <div className="bg-red-500/20 p-2 rounded-xl border border-red-400/30 text-[9px] font-bold text-center animate-pulse">
+                                        <p className="text-red-200">הכי דחוף ⏳</p>
                                         <p className="truncate w-20">{stats.urgent.name}</p>
                                     </div>
                                 )}
@@ -173,165 +184,109 @@
                         </div>
                     </header>
 
-                    {/* Action Buttons - No overlapping */}
-                    <div className="p-4 flex gap-2 overflow-x-auto no-scrollbar bg-gray-50 dark:bg-slate-900 sticky top-0 z-30 border-b dark:border-slate-800 shadow-sm">
-                        <button onClick={() => setIsModalOpen('expense')} className="flex-1 min-w-[100px] bg-red-500 text-white py-4 rounded-2xl font-black shadow-lg active:scale-95 transition">הוצאה</button>
-                        <button onClick={() => setIsModalOpen('income')} className="flex-1 min-w-[100px] bg-green-600 text-white py-4 rounded-2xl font-black shadow-lg active:scale-95 transition">הכנסה</button>
-                        <button onClick={() => setIsModalOpen('loan')} className="flex-1 min-w-[100px] bg-blue-500 text-white py-4 rounded-2xl font-black shadow-lg active:scale-95 transition">חוב חדש</button>
+                    <div className="px-6 -mt-8 flex gap-3 overflow-x-auto no-scrollbar relative z-40 pb-6">
+                        <button onClick={() => setIsModalOpen('expense')} className="flex-shrink-0 bg-red-500 text-white px-8 py-5 rounded-[1.5rem] font-black shadow-xl active:scale-95 transition">הוצאה</button>
+                        <button onClick={() => setIsModalOpen('income')} className="flex-shrink-0 bg-green-500 text-white px-8 py-5 rounded-[1.5rem] font-black shadow-xl active:scale-95 transition">הכנסה</button>
+                        <button onClick={() => setIsModalOpen('loan')} className="flex-shrink-0 bg-blue-500 text-white px-8 py-5 rounded-[1.5rem] font-black shadow-xl active:scale-95 transition">חוב חדש</button>
                     </div>
 
-                    {/* Navigation */}
-                    <nav className="px-6 my-4">
+                    <nav className="px-6 mb-6">
                         <div className="flex bg-gray-200 dark:bg-slate-800 p-1.5 rounded-[1.5rem]">
-                            {['dashboard', 'debts', 'savings', 'stats'].map(t => (
-                                <button key={t} onClick={() => setActiveTab(t)} className={`flex-1 py-2 text-[10px] font-black rounded-xl transition-all ${activeTab === t ? 'active-tab shadow-md' : 'text-gray-500'}`}>
-                                    {t === 'dashboard' ? 'תנועות' : t === 'debts' ? 'חובות' : t === 'savings' ? 'חיסכון' : 'סיכום'}
+                            {['dashboard', 'debts', 'stats'].map(t => (
+                                <button key={t} onClick={() => setActiveTab(t)} className={`flex-1 py-3 text-xs font-black rounded-2xl transition-all ${activeTab === t ? 'active-tab' : 'text-gray-500'}`}>
+                                    {t === 'dashboard' ? 'תנועות' : t === 'debts' ? 'חובות מקובצים' : 'סיכום'}
                                 </button>
                             ))}
                         </div>
                     </nav>
 
                     <main className="px-6 space-y-4 text-right">
-                        {activeTab === 'dashboard' && (
-                            <>
-                                <input type="text" placeholder="חיפוש..." className="w-full p-4 card outline-none text-sm font-bold dark:text-gray-900 mb-2" onChange={e => setSearchQuery(e.target.value)} />
-                                {transactions.filter(t => t.description.includes(searchQuery)).map(t => (
-                                    <div key={t.id} className="card p-5 flex justify-between items-center animate-pop">
-                                        <div className="flex items-center gap-4">
-                                            <div className={`w-1.5 h-8 rounded-full ${t.type === 'in' ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                                            <div className="text-right">
-                                                <p className="font-black text-sm">{t.description}</p>
-                                                <p className="text-[10px] text-gray-400 font-bold">{t.category} • {new Date(t.timestamp).toLocaleDateString('he-IL')}</p>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                            <p className={`font-black ${t.type === 'in' ? 'text-green-600' : 'text-red-600'}`}>₪{t.amount.toLocaleString()}</p>
-                                            <button onClick={() => {if(confirm('למחוק?')) setTransactions(p=>p.filter(x=>x.id!==t.id))}} className="text-gray-200 hover:text-red-400">✕</button>
-                                        </div>
+                        {activeTab === 'dashboard' && transactions.map(t => (
+                            <div key={t.id} className="card p-5 flex justify-between items-center animate-pop">
+                                <div className="flex items-center gap-4">
+                                    <div className={`w-1.5 h-8 rounded-full ${t.type === 'in' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                                    <div className="text-right">
+                                        <p className="font-black text-sm">{t.description}</p>
+                                        <p className="text-[10px] text-gray-400 font-bold">{t.category} • {new Date(t.timestamp).toLocaleDateString('he-IL')}</p>
                                     </div>
-                                ))}
-                            </>
-                        )}
+                                </div>
+                                <p className={`font-black ${t.type === 'in' ? 'text-green-600' : 'text-red-600'}`}>₪{t.amount.toLocaleString()}</p>
+                            </div>
+                        ))}
 
                         {activeTab === 'debts' && (
                             <div className="space-y-8">
                                 <div>
-                                    <h3 className="font-black text-green-600 text-lg mb-3 mr-2">💰 כסף שחייבים לי (₪{stats.lSum.toLocaleString()})</h3>
-                                    {loans.filter(l=>l.status!=='paid').map(item => (
-                                        <div key={item.id} className={`card p-6 border-r-8 border-green-500 shadow-md mb-4 ${item.priority?'urgent-pulse':''}`}>
-                                            <div className="flex justify-between items-start mb-4">
-                                                <div><p className="font-black text-lg">{item.name}</p><p className="text-[10px] text-gray-400">יעד: {item.dueDate}</p></div>
-                                                <p className="font-black text-xl text-green-600">₪{(item.amount - (item.paidAmount || 0)).toLocaleString()}</p>
+                                    <h3 className="font-black text-green-600 text-lg mb-3 mr-2">💰 חייבים לי (₪{stats.lSum.toLocaleString()})</h3>
+                                    <div className="space-y-4">
+                                        {stats.groupedLoans.map(group => (
+                                            <div key={group.name} className={`card p-6 border-r-8 border-green-500 shadow-lg animate-pop ${group.priority ? 'urgent-pulse' : ''}`}>
+                                                <div className="flex justify-between items-start mb-4">
+                                                    <div>
+                                                        <p className="font-black text-xl">{group.name}</p>
+                                                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                                                            {group.items.length} חובות שונים • יעד קרוב: {group.dueDate}
+                                                        </p>
+                                                    </div>
+                                                    <p className="font-black text-2xl text-green-600">₪{(group.totalAmount - group.totalPaid).toLocaleString()}</p>
+                                                </div>
+                                                <button onClick={() => {setPartialData({item: group, type: 'loan'}); setIsModalOpen('partial');}} className="w-full py-4 bg-green-50 text-green-600 rounded-2xl font-black text-xs">ביצוע החזר מרוכז</button>
                                             </div>
-                                            <button onClick={() => {setPartialData({item, type: 'loan'}); setIsModalOpen('partial');}} className="w-full py-3 bg-green-50 text-green-600 rounded-xl font-black text-xs border border-green-100">עדכון החזר חלקי / מלא</button>
-                                        </div>
-                                    ))}
+                                        ))}
+                                    </div>
                                 </div>
+
                                 <div>
                                     <h3 className="font-black text-red-600 text-lg mb-3 mr-2">💳 חובות שלי (₪{stats.dSum.toLocaleString()})</h3>
-                                    {debts.filter(d=>d.status!=='paid').map(item => (
-                                        <div key={item.id} className={`card p-6 border-r-8 border-red-500 shadow-md mb-4 ${item.priority?'urgent-pulse':''}`}>
-                                            <div className="flex justify-between items-start mb-4">
-                                                <div><p className="font-black text-lg">{item.name}</p><p className="text-[10px] text-gray-400">יעד: {item.dueDate}</p></div>
-                                                <p className="font-black text-xl text-red-600">₪{(item.amount - (item.paidAmount || 0)).toLocaleString()}</p>
+                                    <div className="space-y-4">
+                                        {stats.groupedDebts.map(group => (
+                                            <div key={group.name} className={`card p-6 border-r-8 border-red-500 shadow-lg animate-pop ${group.priority ? 'urgent-pulse' : ''}`}>
+                                                <div className="flex justify-between items-start mb-4">
+                                                    <div>
+                                                        <p className="font-black text-xl">{group.name}</p>
+                                                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                                                            {group.items.length} חובות שונים • יעד קרוב: {group.dueDate}
+                                                        </p>
+                                                    </div>
+                                                    <p className="font-black text-2xl text-red-600">₪{(group.totalAmount - group.totalPaid).toLocaleString()}</p>
+                                                </div>
+                                                <button onClick={() => {setPartialData({item: group, type: 'debt'}); setIsModalOpen('partial');}} className="w-full py-4 bg-red-50 text-red-600 rounded-2xl font-black text-xs">תשלום חוב מרוכז</button>
                                             </div>
-                                            <button onClick={() => {setPartialData({item, type: 'debt'}); setIsModalOpen('partial');}} className="w-full py-3 bg-red-50 text-red-600 rounded-xl font-black text-xs border border-red-100">ביצוע תשלום חלקי / מלא</button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-
-                        {activeTab === 'savings' && (
-                            <div className="space-y-4">
-                                <button onClick={() => setIsModalOpen('saving')} className="w-full py-4 border-2 border-dashed border-blue-300 text-blue-500 rounded-3xl font-black text-sm transition-colors hover:bg-blue-50">+ יעד חיסכון חדש</button>
-                                {savings.map(s => (
-                                    <div key={s.id} className="card p-6 shadow-sm">
-                                        <div className="flex justify-between mb-2"><p className="font-black">{s.name}</p><p className="font-black text-blue-600 text-xs">₪{s.current} / ₪{s.target}</p></div>
-                                        <div className="w-full bg-gray-100 dark:bg-slate-700 h-3 rounded-full overflow-hidden">
-                                            <div className="bg-blue-500 h-full" style={{width: `${Math.min((s.current/s.target)*100, 100)}%`}}></div>
-                                        </div>
+                                        ))}
                                     </div>
-                                ))}
-                            </div>
-                        )}
-
-                        {activeTab === 'stats' && (
-                            <div className="card p-8 space-y-6">
-                                <div className="flex gap-2 p-1 bg-gray-100 dark:bg-slate-800 rounded-xl">
-                                    <button onClick={() => setDateFilter('month')} className={`flex-1 py-1.5 text-[10px] font-black rounded-lg ${dateFilter === 'month' ? 'bg-white shadow-sm dark:bg-slate-700' : 'text-gray-400'}`}>החודש</button>
-                                    <button onClick={() => setDateFilter('all')} className={`flex-1 py-1.5 text-[10px] font-black rounded-lg ${dateFilter === 'all' ? 'bg-white shadow-sm dark:bg-slate-700' : 'text-gray-400'}`}>כל הזמן</button>
-                                </div>
-                                <h3 className="font-black text-xl">התפלגות הוצאות</h3>
-                                {Object.entries(stats.catTotals).sort((a,b)=>b[1]-a[1]).map(([n, v]) => (
-                                    <div key={n}>
-                                        <div className="flex justify-between text-xs font-bold mb-1 px-1"><span>{n}</span><span>₪{v.toLocaleString()}</span></div>
-                                        <div className="w-full bg-gray-100 dark:bg-slate-700 h-2.5 rounded-full overflow-hidden"><div className="bg-blue-500 h-full" style={{width: `${(v/stats.outs)*100}%`}}></div></div>
-                                    </div>
-                                ))}
-                                <div className="pt-6 space-y-3">
-                                    <button onClick={() => {
-                                        const text = `📊 סיכום פיננסי Titan OS:\n💰 יתרה: ₪${stats.balance}\n📈 חייבים לי: ₪${stats.lSum}\n📉 אני חייב: ₪${stats.dSum}`;
-                                        window.open(`https://wa.me/?text=${encodeURIComponent(text)}`);
-                                    }} className="w-full py-4 bg-green-500 text-white rounded-2xl font-black text-xs uppercase shadow-lg">שיתוף סיכום בוואטסאפ 💬</button>
-                                    <button onClick={() => {
-                                        const blob = new Blob([localStorage.getItem(STORAGE_KEY)], {type:'application/json'});
-                                        const url = URL.createObjectURL(blob);
-                                        const a = document.createElement('a'); a.href = url; a.download = 'finance_backup.json'; a.click();
-                                    }} className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-[10px] uppercase shadow-lg">גיבוי נתונים לקובץ 💾</button>
                                 </div>
                             </div>
                         )}
                     </main>
 
-                    {/* Modals */}
+                    {/* Modals (הוספת ההחזר המרוכז וההלוואה) */}
                     {isModalOpen && (
                         <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4">
                             <div className="absolute inset-0 modal-bg" onClick={() => setIsModalOpen(null)}></div>
-                            <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-t-[3rem] p-10 shadow-2xl relative z-[110] animate-pop text-right border-t-8 border-blue-600">
+                            <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[3rem] p-10 shadow-2xl relative z-[110] animate-pop text-right">
                                 {isModalOpen === 'partial' ? (
                                     <form onSubmit={handlePartial} className="space-y-6">
-                                        <h3 className="font-black text-xl text-center">החזר ל: {partialData.item.name}</h3>
-                                        <input name="pAmount" type="number" inputMode="decimal" placeholder="סכום להחזר" required className="w-full p-6 bg-gray-100 dark:bg-slate-800 rounded-3xl font-black text-center text-3xl dark:text-gray-100" />
+                                        <h3 className="font-black text-xl text-center">החזר מרוכז מ{partialData.item.name}</h3>
+                                        <p className="text-center text-xs text-gray-400 font-bold">הסכום יחולק אוטומטית בין החובות הישנים ביותר</p>
+                                        <input name="pAmount" type="number" inputMode="decimal" placeholder="סכום" required className="w-full p-6 bg-gray-100 rounded-3xl font-black text-center text-3xl dark:text-gray-900" />
                                         <button type="submit" className="w-full py-6 bg-green-600 text-white rounded-[2rem] font-black text-xl">אשר תשלום</button>
                                     </form>
                                 ) : (
-                                    <form onSubmit={handleSave} className="space-y-5">
-                                        <h3 className="font-black text-2xl">
-                                            {isModalOpen === 'expense' ? '💸 הוצאה' : isModalOpen === 'income' ? '💰 הכנסה' : isModalOpen === 'loan' ? '🤝 חוב / הלוואה' : '🎯 יעד חיסכון'}
-                                        </h3>
+                                    <form onSubmit={handleSaveTransaction} className="space-y-5">
+                                        <h3 className="font-black text-2xl">{isModalOpen === 'expense' ? '💸 הוצאה' : isModalOpen === 'income' ? '💰 הכנסה' : '🤝 חוב / הלוואה'}</h3>
                                         <div className="flex gap-3">
-                                            <input name="amount" type="number" inputMode="decimal" placeholder="סכום" required className="flex-[2] p-5 bg-gray-100 dark:bg-slate-800 rounded-3xl font-black text-2xl dark:text-gray-100" />
-                                            {isModalOpen !== 'saving' && (
-                                                <select name="currency" className="flex-1 bg-gray-100 dark:bg-slate-800 rounded-3xl font-bold p-2 dark:text-gray-100">
-                                                    <option value="ILS">₪</option><option value="USD">$</option><option value="EUR">€</option><option value="GEL">₾</option>
-                                                </select>
-                                            )}
+                                            <input name="amount" type="number" inputMode="decimal" placeholder="סכום" required className="flex-[2] p-5 bg-gray-100 rounded-3xl font-black text-2xl dark:text-gray-900" />
+                                            <select name="currency" className="flex-1 bg-gray-100 rounded-3xl font-bold p-2 dark:text-gray-900"><option value="ILS">₪</option><option value="USD">$</option></select>
                                         </div>
-                                        <input name="desc" placeholder="תיאור" required className="w-full p-5 bg-gray-100 dark:bg-slate-800 rounded-3xl font-bold dark:text-gray-100" />
-                                        
-                                        {(isModalOpen === 'expense' || isModalOpen === 'income') && (
-                                            <div className="space-y-4">
-                                                <div className="flex flex-wrap gap-2">
-                                                    {categories.map(c => (
-                                                        <button key={c} type="button" onClick={() => setSelectedCategory(c)} className={`px-4 py-2 rounded-xl text-[10px] font-black border-2 transition-all ${selectedCategory === c ? 'bg-blue-600 border-blue-600 text-white shadow-md' : 'border-gray-100 dark:border-slate-700 text-gray-400'}`}>{c}</button>
-                                                    ))}
-                                                </div>
-                                                {!selectedCategory && (
-                                                    <input name="custom_cat" placeholder="או הקלד קטגוריה חדשה..." className="w-full p-2 border-b-2 border-gray-100 dark:border-slate-700 bg-transparent text-sm font-black dark:text-gray-100 outline-none focus:border-blue-500" />
-                                                )}
-                                            </div>
-                                        )}
-
+                                        <input name="desc" placeholder={isModalOpen === 'loan' ? "שם האדם (עבור קיבוץ)" : "תיאור"} required className="w-full p-5 bg-gray-100 rounded-3xl font-bold dark:text-gray-900" />
                                         {isModalOpen === 'loan' && (
-                                            <div className="p-6 bg-blue-50 dark:bg-slate-800 rounded-3xl space-y-4 border-2 border-blue-100">
-                                                <label className="flex items-center gap-3 cursor-pointer"><input name="isDebt" type="checkbox" className="w-6 h-6 accent-blue-600" /><span className="text-sm font-black text-blue-800 dark:text-blue-300">זה חוב שלי למישהו</span></label>
-                                                <label className="flex items-center gap-3 cursor-pointer"><input name="priority" type="checkbox" className="w-6 h-6 accent-red-600" /><span className="text-sm font-black text-red-600">סמן כדחוף!</span></label>
-                                                <input name="due" type="date" required className="w-full p-3 bg-white dark:bg-slate-700 rounded-2xl font-bold dark:text-gray-100" />
+                                            <div className="p-6 bg-blue-50 dark:bg-slate-800 rounded-3xl space-y-4">
+                                                <label className="flex items-center gap-3 cursor-pointer"><input name="isDebt" type="checkbox" className="w-6 h-6" /><span className="text-sm font-black text-blue-800 dark:text-blue-300">זה חוב שלי</span></label>
+                                                <label className="flex items-center gap-3 cursor-pointer"><input name="priority" type="checkbox" className="w-6 h-6" /><span className="text-sm font-black text-red-600">דחוף!</span></label>
+                                                <input name="due" type="date" required className="w-full p-3 bg-white rounded-2xl font-bold dark:text-gray-900" />
                                             </div>
                                         )}
-                                        
-                                        <button type="submit" className="w-full py-6 bg-blue-600 text-white rounded-[2rem] font-black text-xl mt-4 shadow-xl active:scale-95 transition">שמור במערכת 🚀</button>
+                                        <button type="submit" className="w-full py-6 bg-blue-600 text-white rounded-[2rem] font-black text-xl mt-4">שמור</button>
                                     </form>
                                 )}
                             </div>
