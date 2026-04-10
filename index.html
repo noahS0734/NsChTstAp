@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Titan Finance OS - Master v3</title>
+    <title>Titan Finance OS - Master Edition</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -15,9 +15,9 @@
         body { font-family: 'Assistant', sans-serif; -webkit-tap-highlight-color: transparent; transition: all 0.3s; }
         .dark { background-color: #0f172a; color: white; }
         .modal-bg { background: rgba(0,0,0,0.8); backdrop-filter: blur(12px); }
-        .card { background: white; border-radius: 2rem; box-shadow: 0 4px 20px -5px rgba(0,0,0,0.05); border: 1px solid rgba(0,0,0,0.05); }
+        .card { background: white; border-radius: 2rem; box-shadow: 0 4px 25px -5px rgba(0,0,0,0.1); border: 1px solid rgba(0,0,0,0.05); }
         .dark .card { background: #1e293b; border: 1px solid #334155; }
-        .active-tab { background-color: #2563eb; color: white; }
+        .active-tab { background-color: #2563eb; color: white; transform: scale(1.05); }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .urgent-pulse { border: 2px solid #ef4444; animation: pulse-red 2s infinite; }
         @keyframes pulse-red { 0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); } 70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); } 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
@@ -25,13 +25,13 @@
         @keyframes pop { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
-<body class="bg-gray-50 text-gray-900 dark:bg-slate-900 dark:text-white">
+<body class="bg-gray-50 text-gray-900">
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        const STORAGE_KEY = 'titan_master_v3_final';
+        const STORAGE_KEY = 'titan_master_os_v3';
         const EXCHANGE_RATES = { ILS: 1, USD: 3.7, EUR: 4.0, GEL: 1.4 };
 
         const App = () => {
@@ -72,7 +72,6 @@
                 }
             }, [transactions, loans, debts, savings, categories, darkMode, loading]);
 
-            // לוגיקת הקיבוץ
             const groupData = (data) => {
                 const groups = {};
                 data.filter(i => i.status !== 'paid').forEach(item => {
@@ -164,8 +163,8 @@
             if (loading) return null;
 
             return (
-                <div className="max-w-md mx-auto min-h-screen flex flex-col">
-                    {/* Header - Fixed height, no overlap */}
+                <div className="max-w-md mx-auto min-h-screen flex flex-col overflow-x-hidden">
+                    {/* Header */}
                     <header className="bg-blue-600 p-6 pt-12 shadow-xl text-white text-right shrink-0">
                         <div className="flex justify-between items-center mb-6">
                             <h1 className="text-2xl font-black italic tracking-tighter">TITAN OS</h1>
@@ -187,11 +186,11 @@
                         </div>
                     </header>
 
-                    {/* Action Buttons - Natural flow */}
-                    <div className="p-4 flex gap-2 overflow-x-auto no-scrollbar bg-gray-50 dark:bg-slate-900 border-b dark:border-slate-800 shrink-0">
-                        <button onClick={() => setIsModalOpen('expense')} className="flex-1 min-w-[100px] bg-red-500 text-white py-4 rounded-2xl font-black shadow-lg active:scale-95 transition">הוצאה</button>
-                        <button onClick={() => setIsModalOpen('income')} className="flex-1 min-w-[100px] bg-green-600 text-white py-4 rounded-2xl font-black shadow-lg active:scale-95 transition">הכנסה</button>
-                        <button onClick={() => setIsModalOpen('loan')} className="flex-1 min-w-[100px] bg-blue-500 text-white py-4 rounded-2xl font-black shadow-lg active:scale-95 transition">חוב חדש</button>
+                    {/* Action Buttons - עכשיו עם עיגול מלא ומרשים יותר */}
+                    <div className="p-4 flex gap-2 overflow-x-auto no-scrollbar bg-gray-50 dark:bg-slate-900 border-b dark:border-slate-800 shrink-0 sticky top-0 z-30">
+                        <button onClick={() => setIsModalOpen('expense')} className="flex-1 min-w-[100px] bg-red-500 text-white py-4 rounded-[2rem] font-black shadow-lg active:scale-95 transition">הוצאה</button>
+                        <button onClick={() => setIsModalOpen('income')} className="flex-1 min-w-[100px] bg-green-600 text-white py-4 rounded-[2rem] font-black shadow-lg active:scale-95 transition">הכנסה</button>
+                        <button onClick={() => setIsModalOpen('loan')} className="flex-1 min-w-[100px] bg-blue-500 text-white py-4 rounded-[2rem] font-black shadow-lg active:scale-95 transition">חוב חדש</button>
                     </div>
 
                     {/* Navigation */}
@@ -205,11 +204,11 @@
                         </div>
                     </nav>
 
-                    {/* Scrollable Main Content */}
-                    <main className="px-6 space-y-4 text-right flex-grow">
+                    {/* Main Content */}
+                    <main className="px-6 space-y-4 text-right flex-grow pb-10">
                         {activeTab === 'dashboard' && (
                             <>
-                                <input type="text" placeholder="חיפוש..." className="w-full p-4 card outline-none text-sm font-bold dark:text-gray-900 mb-2" onChange={e => setSearchQuery(e.target.value)} />
+                                <input type="text" placeholder="חיפוש..." className="w-full p-4 card outline-none text-sm font-bold dark:text-gray-900 mb-2 shadow-sm" onChange={e => setSearchQuery(e.target.value)} />
                                 {transactions.filter(t => t.description.includes(searchQuery)).map(t => (
                                     <div key={t.id} className="card p-5 flex justify-between items-center animate-pop">
                                         <div className="flex items-center gap-4">
@@ -221,7 +220,7 @@
                                         </div>
                                         <div className="flex items-center gap-3">
                                             <p className={`font-black ${t.type === 'in' ? 'text-green-600' : 'text-red-600'}`}>₪{t.amount.toLocaleString()}</p>
-                                            <button onClick={() => {if(confirm('למחוק?')) setTransactions(p=>p.filter(x=>x.id!==t.id))}} className="text-gray-200 hover:text-red-400">✕</button>
+                                            <button onClick={() => {if(confirm('למחוק?')) setTransactions(p=>p.filter(x=>x.id!==t.id))}} className="text-gray-200 hover:text-red-400 transition-colors">✕</button>
                                         </div>
                                     </div>
                                 ))}
@@ -234,25 +233,39 @@
                                     <h3 className="font-black text-green-600 text-lg mb-3 mr-2">💰 חייבים לי (₪{stats.lSum.toLocaleString()})</h3>
                                     {stats.gLoans.map(group => (
                                         <div key={group.name} className={`card p-6 border-r-8 border-green-500 shadow-md mb-4 ${group.priority?'urgent-pulse':''}`}>
-                                            <div className="flex justify-between items-start mb-4">
-                                                <div className="text-right"><p className="font-black text-xl">{group.name}</p><p className="text-[10px] text-gray-400">יעד קרוב: {group.dueDate}</p></div>
+                                            <div className="flex justify-between items-start mb-4 text-right">
+                                                <div>
+                                                    <p className="font-black text-xl">{group.name}</p>
+                                                    <p className="text-[10px] text-gray-400 font-bold">
+                                                        {group.itemsCount > 1 && <span>{group.itemsCount} רישומים • </span>}
+                                                        יעד: {group.dueDate}
+                                                    </p>
+                                                </div>
                                                 <p className="font-black text-2xl text-green-600 text-left">₪{(group.totalAmount - group.totalPaid).toLocaleString()}</p>
                                             </div>
                                             <button onClick={() => {setPartialData({item: group, type: 'loan'}); setIsModalOpen('partial');}} className="w-full py-3 bg-green-50 text-green-600 rounded-xl font-black text-xs border border-green-100">עדכון החזר חלקי / מלא</button>
                                         </div>
                                     ))}
+                                    {stats.gLoans.length === 0 && <p className="text-gray-400 text-sm mr-2 italic">אין הלוואות פתוחות</p>}
                                 </div>
                                 <div>
                                     <h3 className="font-black text-red-600 text-lg mb-3 mr-2">💳 חובות שלי (₪{stats.dSum.toLocaleString()})</h3>
                                     {stats.gDebts.map(group => (
                                         <div key={group.name} className={`card p-6 border-r-8 border-red-500 shadow-md mb-4 ${group.priority?'urgent-pulse':''}`}>
-                                            <div className="flex justify-between items-start mb-4">
-                                                <div className="text-right"><p className="font-black text-xl">{group.name}</p><p className="text-[10px] text-gray-400">יעד קרוב: {group.dueDate}</p></div>
+                                            <div className="flex justify-between items-start mb-4 text-right">
+                                                <div>
+                                                    <p className="font-black text-xl">{group.name}</p>
+                                                    <p className="text-[10px] text-gray-400 font-bold">
+                                                        {group.itemsCount > 1 && <span>{group.itemsCount} רישומים • </span>}
+                                                        יעד: {group.dueDate}
+                                                    </p>
+                                                </div>
                                                 <p className="font-black text-2xl text-red-600 text-left">₪{(group.totalAmount - group.totalPaid).toLocaleString()}</p>
                                             </div>
                                             <button onClick={() => {setPartialData({item: group, type: 'debt'}); setIsModalOpen('partial');}} className="w-full py-3 bg-red-50 text-red-600 rounded-xl font-black text-xs border border-red-100">ביצוע תשלום חלקי / מלא</button>
                                         </div>
                                     ))}
+                                    {stats.gDebts.length === 0 && <p className="text-gray-400 text-sm mr-2 italic">אין חובות פתוחים</p>}
                                 </div>
                             </div>
                         )}
@@ -263,7 +276,7 @@
                                 {savings.map(s => (
                                     <div key={s.id} className="card p-6 shadow-sm">
                                         <div className="flex justify-between mb-2"><p className="font-black">{s.name}</p><p className="font-black text-blue-600 text-xs">₪{s.current} / ₪{s.target}</p></div>
-                                        <div className="w-full bg-gray-100 dark:bg-slate-700 h-3 rounded-full overflow-hidden"><div className="bg-blue-500 h-full" style={{width: `${(s.current/s.target)*100}%`}}></div></div>
+                                        <div className="w-full bg-gray-100 dark:bg-slate-700 h-3 rounded-full overflow-hidden"><div className="bg-blue-500 h-full" style={{width: `${Math.min((s.current/s.target)*100, 100)}%`}}></div></div>
                                     </div>
                                 ))}
                             </div>
@@ -297,7 +310,7 @@
                         )}
                     </main>
 
-                    {/* Modals - Bottom Sheet Style */}
+                    {/* Modals */}
                     {isModalOpen && (
                         <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4">
                             <div className="absolute inset-0 modal-bg" onClick={() => setIsModalOpen(null)}></div>
