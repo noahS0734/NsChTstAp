@@ -29,7 +29,7 @@
     <script type="text/babel">
         const { useState, useEffect, useMemo } = React;
 
-        const STORAGE_KEY = 'titan_finance_v4_ultimate';
+        const STORAGE_KEY = 'titan_finance_v5_final';
         const EXCHANGE_RATES = { ILS: 1, USD: 3.7, EUR: 4.0, GEL: 1.4 };
 
         const App = () => {
@@ -39,8 +39,8 @@
             const [dateFilter, setDateFilter] = useState('month');
             
             const [transactions, setTransactions] = useState([]);
-            const [loans, setLoans] = useState([]);
-            const [debts, setDebts] = useState([]);
+            const [loans, setLoans] = useState([]); // חייבים לי
+            const [debts, setDebts] = useState([]); // אני חייב
             const [categories, setCategories] = useState(['מזון', 'דלק', 'קניות', 'בילוי', 'בריאות']);
             
             const [isModalOpen, setIsModalOpen] = useState(null);
@@ -48,7 +48,6 @@
             const [partialData, setPartialData] = useState(null);
             const [loading, setLoading] = useState(true);
 
-            // טעינה מהזיכרון
             useEffect(() => {
                 const saved = localStorage.getItem(STORAGE_KEY);
                 if (saved) {
@@ -62,7 +61,6 @@
                 setLoading(false);
             }, []);
 
-            // שמירה אוטומטית
             useEffect(() => {
                 if (!loading) {
                     localStorage.setItem(STORAGE_KEY, JSON.stringify({ transactions, loans, debts, categories, darkMode }));
@@ -89,11 +87,7 @@
                 const lSum = loans.filter(l => l.status !== 'paid').reduce((s, l) => s + (l.amount - (l.paidAmount || 0)), 0);
                 const dSum = debts.filter(d => d.status !== 'paid').reduce((s, d) => s + (d.amount - (d.paidAmount || 0)), 0);
 
-                return { 
-                    balance: ins - outs, 
-                    ins, outs, catTotals, lSum, dSum,
-                    burnRate: ins > 0 ? Math.min((outs / ins) * 100, 100) : (outs > 0 ? 100 : 0)
-                };
+                return { balance: ins - outs, ins, outs, catTotals, lSum, dSum };
             }, [transactions, loans, debts, dateFilter]);
 
             const handleSaveTransaction = (e) => {
@@ -110,15 +104,6 @@
                     setCategories(prev => [...prev, customCat]);
                 }
 
-                const newT = {
-                    id: Date.now(),
-                    amount: totalAmount,
-                    description: fd.get('desc'),
-                    category: finalCategory,
-                    type: isModalOpen === 'income' ? 'in' : 'out',
-                    timestamp: new Date().toISOString()
-                };
-
                 if (isModalOpen === 'loan') {
                     const isIncomingDebt = fd.get('isDebt') === 'on';
                     const loanObj = {
@@ -129,227 +114,209 @@
                         dueDate: fd.get('due'),
                         status: 'open'
                     };
-                    if (isIncomingDebt) setDebts(p => [loanObj, ...p]);
-                    else setLoans(p => [loanObj, ...p]);
+                    if (isIncomingDebt) {
+                        setDebts(p => [loanObj, ...p]);
+                        // הלוואה שקיבלתי = הכנסה במזומן
+                        setTransactions(p => [{ id: Date.now()+1, amount: totalAmount, description: `חוב מ: ${fd.get('desc')}`, category: 'חובות', type: 'in', timestamp: new Date().toISOString() }, ...p]);
+                    } else {
+                        setLoans(p => [loanObj, ...p]);
+                        // הלוואה שנתתי = הוצאה במזומן
+                        setTransactions(p => [{ id: Date.now()+1, amount: totalAmount, description: `הלוואה ל: ${fd.get('desc')}`, category: 'הלוואות', type: 'out', timestamp: new Date().toISOString() }, ...p]);
+                    }
+                } else {
+                    const newT = {
+                        id: Date.now(),
+                        amount: totalAmount,
+                        description: fd.get('desc'),
+                        category: finalCategory,
+                        type: isModalOpen === 'income' ? 'in' : 'out',
+                        timestamp: new Date().toISOString()
+                    };
+                    setTransactions(p => [newT, ...p]);
                 }
 
-                setTransactions(p => [newT, ...p]);
                 setIsModalOpen(null);
                 setSelectedCategory('');
             };
 
-            const shareSummary = () => {
-                const text = `📊 סיכום פיננסי - Titan OS:\n💰 יתרה: ₪${stats.balance}\n📉 הוצאות החודש: ₪${stats.outs}\n💸 חובות אלי: ₪${stats.lSum}\n💳 חובות שלי: ₪${stats.dSum}`;
-                window.open(`https://wa.me/?text=${encodeURIComponent(text)}`);
+            const handlePartial = (e) => {
+                e.preventDefault();
+                const amount = Number(new FormData(e.target).get('pAmount'));
+                const { item, type } = partialData;
+
+                const updateFn = (list) => list.map(i => {
+                    if (i.id === item.id) {
+                        const newPaid = (i.paidAmount || 0) + amount;
+                        return { ...i, paidAmount: newPaid, status: newPaid >= i.amount ? 'paid' : 'open' };
+                    }
+                    return i;
+                });
+
+                if (type === 'loan') {
+                    setLoans(updateFn);
+                    setTransactions(p => [{ id: Date.now(), amount, description: `החזר הלוואה מ: ${item.name}`, category: 'הלוואות', type: 'in', timestamp: new Date().toISOString() }, ...p]);
+                } else {
+                    setDebts(updateFn);
+                    setTransactions(p => [{ id: Date.now(), amount, description: `תשלום חוב ל: ${item.name}`, category: 'חובות', type: 'out', timestamp: new Date().toISOString() }, ...p]);
+                }
+
+                setPartialData(null);
+                setIsModalOpen(null);
             };
 
             if (loading) return null;
 
             return (
                 <div className="max-w-md mx-auto min-h-screen pb-28 relative overflow-x-hidden">
-                    {/* Header */}
                     <header className="bg-gradient-to-br from-blue-600 to-blue-800 p-8 pt-12 rounded-b-[3rem] shadow-2xl sticky top-0 z-30 text-white">
                         <div className="flex justify-between items-center mb-8">
-                            <div>
-                                <h1 className="text-2xl font-black tracking-tighter italic">TITAN <span className="text-blue-200">OS</span></h1>
-                                <p className="text-[10px] font-bold text-blue-100/60 uppercase">Financial Intelligence</p>
-                            </div>
-                            <button onClick={() => setDarkMode(!darkMode)} className="p-3 bg-white/10 rounded-2xl backdrop-blur-md">
-                                {darkMode ? '☀️' : '🌙'}
-                            </button>
+                            <h1 className="text-2xl font-black italic">TITAN <span className="text-blue-200">OS</span></h1>
+                            <button onClick={() => setDarkMode(!darkMode)} className="p-3 bg-white/10 rounded-2xl backdrop-blur-md">{darkMode ? '☀️' : '🌙'}</button>
                         </div>
                         <div className="bg-white/10 backdrop-blur-xl rounded-[2rem] p-6 border border-white/20 shadow-inner">
-                            <div className="flex justify-between items-end">
-                                <div>
-                                    <p className="text-blue-100 text-[10px] font-black uppercase mb-1 tracking-widest">יתרה במזומן</p>
-                                    <h2 className="text-4xl font-black">₪{stats.balance.toLocaleString()}</h2>
-                                </div>
-                                <div className="text-left text-blue-100/80 text-[10px] font-bold">
-                                    <p>הכנסות: ₪{stats.ins}</p>
-                                    <p>הוצאות: ₪{stats.outs}</p>
-                                </div>
-                            </div>
+                            <p className="text-blue-100 text-[10px] font-black uppercase mb-1 tracking-widest text-right">יתרה במזומן</p>
+                            <h2 className="text-4xl font-black text-right">₪{stats.balance.toLocaleString()}</h2>
                         </div>
                     </header>
 
-                    {/* Quick Buttons */}
                     <div className="px-6 -mt-8 flex gap-3 overflow-x-auto no-scrollbar relative z-40 pb-6">
-                        <button onClick={() => setIsModalOpen('expense')} className="flex-shrink-0 bg-red-500 text-white px-8 py-5 rounded-[1.5rem] font-black shadow-xl active:scale-90 transition transform">הוצאה</button>
-                        <button onClick={() => setIsModalOpen('income')} className="flex-shrink-0 bg-green-500 text-white px-8 py-5 rounded-[1.5rem] font-black shadow-xl active:scale-90 transition transform">הכנסה</button>
-                        <button onClick={() => setIsModalOpen('loan')} className="flex-shrink-0 bg-blue-500 text-white px-8 py-5 rounded-[1.5rem] font-black shadow-xl active:scale-90 transition transform">חוב</button>
+                        <button onClick={() => setIsModalOpen('expense')} className="flex-shrink-0 bg-red-500 text-white px-8 py-5 rounded-[1.5rem] font-black shadow-xl active:scale-95 transition">הוצאה</button>
+                        <button onClick={() => setIsModalOpen('income')} className="flex-shrink-0 bg-green-500 text-white px-8 py-5 rounded-[1.5rem] font-black shadow-xl active:scale-95 transition">הכנסה</button>
+                        <button onClick={() => setIsModalOpen('loan')} className="flex-shrink-0 bg-blue-500 text-white px-8 py-5 rounded-[1.5rem] font-black shadow-xl active:scale-95 transition">חוב / הלוואה</button>
                     </div>
 
-                    {/* Burn Rate Bar */}
-                    {activeTab === 'stats' && (
-                        <div className="px-6 mb-6">
-                            <div className="card p-4 animate-pop">
-                                <div className="flex justify-between items-center mb-2">
-                                    <p className="text-[10px] font-black uppercase text-gray-400 tracking-widest">מדד ניצול הכנסה</p>
-                                    <p className="text-xs font-black text-blue-600">{Math.round(stats.burnRate)}%</p>
-                                </div>
-                                <div className="w-full bg-gray-100 dark:bg-slate-700 h-3 rounded-full overflow-hidden">
-                                    <div className={`h-full transition-all duration-1000 ${stats.burnRate > 80 ? 'bg-red-500' : 'bg-blue-500'}`} style={{width: `${stats.burnRate}%`}}></div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Navigation */}
                     <nav className="px-6 mb-6">
                         <div className="flex bg-gray-200 dark:bg-slate-800 p-1.5 rounded-[1.5rem]">
                             {['dashboard', 'debts', 'stats'].map(t => (
-                                <button key={t} onClick={() => setActiveTab(t)} className={`flex-1 py-3 text-xs font-black rounded-2xl transition-all ${activeTab === t ? 'active-tab shadow-lg' : 'text-gray-500'}`}>
-                                    {t === 'dashboard' ? 'תנועות' : t === 'debts' ? 'חובות' : 'סיכום חכם'}
+                                <button key={t} onClick={() => setActiveTab(t)} className={`flex-1 py-3 text-xs font-black rounded-2xl transition-all ${activeTab === t ? 'active-tab' : 'text-gray-500'}`}>
+                                    {t === 'dashboard' ? 'תנועות' : t === 'debts' ? 'חובות והלוואות' : 'סיכום'}
                                 </button>
                             ))}
                         </div>
                     </nav>
 
-                    <main className="px-6 space-y-4">
+                    <main className="px-6 space-y-4 text-right">
                         {activeTab === 'dashboard' && (
                             <>
-                                <div className="relative group">
-                                    <input type="text" placeholder="חיפוש מהיר..." className="w-full p-4 card outline-none text-sm font-bold border-2 border-transparent focus:border-blue-500 transition-all dark:text-gray-900" onChange={e => setSearchQuery(e.target.value)} />
-                                </div>
+                                <input type="text" placeholder="חיפוש..." className="w-full p-4 card outline-none text-sm font-bold dark:text-gray-900" onChange={e => setSearchQuery(e.target.value)} />
                                 {transactions.filter(t => t.description.includes(searchQuery)).map(t => (
-                                    <div key={t.id} className="card p-5 flex justify-between items-center animate-pop group relative overflow-hidden">
+                                    <div key={t.id} className="card p-5 flex justify-between items-center animate-pop">
                                         <div className="flex items-center gap-4">
-                                            <div className={`w-2 h-10 rounded-full ${t.type === 'in' ? 'bg-green-400' : 'bg-red-400'}`}></div>
-                                            <div>
-                                                <p className="font-black text-sm text-gray-800 dark:text-white">{t.description}</p>
-                                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-tighter">{t.category} • {new Date(t.timestamp).toLocaleDateString('he-IL')}</p>
+                                            <div className={`w-1.5 h-8 rounded-full ${t.type === 'in' ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                                            <div className="text-right">
+                                                <p className="font-black text-sm">{t.description}</p>
+                                                <p className="text-[10px] text-gray-400 font-bold">{t.category} • {new Date(t.timestamp).toLocaleDateString('he-IL')}</p>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-4">
-                                            <p className={`font-black text-lg ${t.type === 'in' ? 'text-green-600' : 'text-red-600'}`}>₪{t.amount.toLocaleString()}</p>
-                                            <button onClick={() => { if(confirm('למחוק?')) setTransactions(prev => prev.filter(x => x.id !== t.id)) }} className="text-gray-200 group-hover:text-red-400 transition-colors">✕</button>
-                                        </div>
+                                        <p className={`font-black ${t.type === 'in' ? 'text-green-600' : 'text-red-600'}`}>₪{t.amount.toLocaleString()}</p>
                                     </div>
                                 ))}
                             </>
                         )}
 
                         {activeTab === 'debts' && (
-                            <div className="space-y-4 text-right">
-                                {[...loans.map(l => ({...l, type: 'loan'})), ...debts.map(d => ({...d, type: 'debt'}))].filter(i => i.status !== 'paid').map(item => (
-                                    <div key={item.id} className="card p-6 border-r-8 border-blue-500 shadow-xl animate-pop">
-                                        <div className="flex justify-between items-start mb-6">
-                                            <div className="text-right">
-                                                <h4 className="font-black text-xl text-gray-800 dark:text-white">{item.name}</h4>
-                                                <p className="text-xs text-red-500 font-black flex items-center gap-1 mt-1">
-                                                    <span>⏳</span> תאריך יעד: {item.dueDate}
-                                                </p>
+                            <div className="space-y-8">
+                                {/* סעיף הלוואות שנתתי */}
+                                <div>
+                                    <h3 className="font-black text-green-600 mb-3 mr-2 text-lg">💰 כסף שחייבים לי</h3>
+                                    <div className="space-y-4">
+                                        {loans.filter(i => i.status !== 'paid').map(item => (
+                                            <div key={item.id} className="card p-6 border-r-8 border-green-500 shadow-lg animate-pop">
+                                                <div className="flex justify-between items-start mb-4">
+                                                    <div>
+                                                        <p className="font-black text-lg">{item.name}</p>
+                                                        <p className="text-xs text-gray-400 font-bold">יעד החזר: {item.dueDate}</p>
+                                                    </div>
+                                                    <p className="font-black text-xl text-green-600">₪{(item.amount - (item.paidAmount || 0)).toLocaleString()}</p>
+                                                </div>
+                                                <button onClick={() => {setPartialData({item, type: 'loan'}); setIsModalOpen('partial');}} className="w-full py-3 bg-green-50 text-green-600 rounded-xl font-black text-xs border border-green-100">עדכון החזר שהתקבל</button>
                                             </div>
-                                            <p className="font-black text-2xl text-blue-600">₪{(item.amount - (item.paidAmount || 0)).toLocaleString()}</p>
-                                        </div>
-                                        <button onClick={() => {setPartialData({item, type: item.type}); setIsModalOpen('partial');}} className="w-full py-4 bg-blue-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-blue-200 active:scale-95 transition">ביצוע החזר חלקי / מלא</button>
+                                        ))}
+                                        {loans.filter(i => i.status !== 'paid').length === 0 && <p className="text-gray-400 text-sm mr-2 italic">אין הלוואות פתוחות</p>}
                                     </div>
-                                ))}
-                                {loans.length === 0 && debts.length === 0 && <p className="text-center text-gray-400 font-bold py-10 italic">אין חובות פתוחים כרגע 🙌</p>}
+                                </div>
+
+                                {/* סעיף חובות שלי */}
+                                <div>
+                                    <h3 className="font-black text-red-600 mb-3 mr-2 text-lg">💳 חובות שלי לאחרים</h3>
+                                    <div className="space-y-4">
+                                        {debts.filter(i => i.status !== 'paid').map(item => (
+                                            <div key={item.id} className="card p-6 border-r-8 border-red-500 shadow-lg animate-pop">
+                                                <div className="flex justify-between items-start mb-4">
+                                                    <div>
+                                                        <p className="font-black text-lg">{item.name}</p>
+                                                        <p className="text-xs text-gray-400 font-bold">יעד תשלום: {item.dueDate}</p>
+                                                    </div>
+                                                    <p className="font-black text-xl text-red-600">₪{(item.amount - (item.paidAmount || 0)).toLocaleString()}</p>
+                                                </div>
+                                                <button onClick={() => {setPartialData({item, type: 'debt'}); setIsModalOpen('partial');}} className="w-full py-3 bg-red-50 text-red-600 rounded-xl font-black text-xs border border-red-100">ביצוע תשלום חוב</button>
+                                            </div>
+                                        ))}
+                                        {debts.filter(i => i.status !== 'paid').length === 0 && <p className="text-gray-400 text-sm mr-2 italic">אין חובות פתוחים</p>}
+                                    </div>
+                                </div>
                             </div>
                         )}
 
                         {activeTab === 'stats' && (
-                            <div className="space-y-6">
-                                <div className="flex gap-2 p-1 bg-gray-200 dark:bg-slate-800 rounded-2xl">
-                                    <button onClick={() => setDateFilter('month')} className={`flex-1 py-2 text-[10px] font-black rounded-xl ${dateFilter === 'month' ? 'bg-white dark:bg-slate-700 shadow-md' : 'text-gray-400'}`}>החודש</button>
-                                    <button onClick={() => setDateFilter('all')} className={`flex-1 py-2 text-[10px] font-black rounded-xl ${dateFilter === 'all' ? 'bg-white dark:bg-slate-700 shadow-md' : 'text-gray-400'}`}>כל הזמן</button>
-                                </div>
-
-                                <div className="card p-8 shadow-xl relative overflow-hidden">
-                                    <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50 dark:bg-blue-900/10 rounded-full -mr-16 -mt-16"></div>
-                                    <h3 className="font-black text-xl mb-8 relative">התפלגות הוצאות</h3>
-                                    <div className="space-y-6 relative">
-                                        {Object.entries(stats.catTotals).sort((a,b) => b[1]-a[1]).map(([name, val]) => (
-                                            <div key={name}>
-                                                <div className="flex justify-between text-xs font-black mb-2 px-1">
-                                                    <span className="text-gray-700 dark:text-gray-300">{name}</span>
-                                                    <span className="text-blue-600 font-black">₪{val.toLocaleString()}</span>
-                                                </div>
-                                                <div className="w-full bg-gray-100 dark:bg-slate-700 h-3 rounded-full overflow-hidden shadow-inner">
-                                                    <div className="bg-gradient-to-r from-blue-400 to-blue-600 h-full rounded-full transition-all duration-700" style={{width: `${(val/stats.outs)*100}%`}}></div>
-                                                </div>
-                                            </div>
-                                        ))}
+                            <div className="card p-8">
+                                <h3 className="font-black text-xl mb-6">התפלגות הוצאות</h3>
+                                {Object.entries(stats.catTotals).sort((a,b) => b[1]-a[1]).map(([name, val]) => (
+                                    <div key={name} className="mb-4">
+                                        <div className="flex justify-between text-xs font-black mb-1"><span>{name}</span><span>₪{val.toLocaleString()}</span></div>
+                                        <div className="w-full bg-gray-100 dark:bg-slate-700 h-2.5 rounded-full overflow-hidden">
+                                            <div className="bg-blue-600 h-full" style={{width: `${(val/stats.outs)*100}%`}}></div>
+                                        </div>
                                     </div>
-                                    
-                                    <div className="mt-10 pt-6 border-t dark:border-slate-700 space-y-3">
-                                        <button onClick={shareSummary} className="w-full py-4 bg-green-500 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg active:scale-95 transition">שיתוף סיכום בוואטסאפ 💬</button>
-                                        <button onClick={() => {
-                                            const blob = new Blob([localStorage.getItem(STORAGE_KEY)], {type: 'application/json'});
-                                            const url = URL.createObjectURL(blob);
-                                            const a = document.createElement('a'); a.href = url; a.download = 'finance_backup.json'; a.click();
-                                        }} className="w-full py-4 bg-gray-900 text-white rounded-2xl font-black text-[10px] uppercase tracking-tighter">הורדת קובץ גיבוי מלא 💾</button>
-                                    </div>
-                                </div>
+                                ))}
                             </div>
                         )}
                     </main>
 
-                    {/* Modals */}
                     {isModalOpen && (
                         <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4">
                             <div className="absolute inset-0 modal-bg" onClick={() => setIsModalOpen(null)}></div>
-                            <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[3rem] p-10 shadow-2xl relative z-[110] animate-pop text-right border-t-8 border-blue-600">
+                            <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-[3rem] p-10 shadow-2xl relative z-[110] animate-pop text-right">
                                 {isModalOpen === 'partial' ? (
-                                    <form onSubmit={(e) => {
-                                        e.preventDefault();
-                                        const amount = Number(new FormData(e.target).get('pAmount'));
-                                        const { item, type } = partialData;
-                                        const updateFn = (list) => list.map(i => {
-                                            if (i.id === item.id) {
-                                                const newPaid = (i.paidAmount || 0) + amount;
-                                                return { ...i, paidAmount: newPaid, status: newPaid >= i.amount ? 'paid' : 'open' };
-                                            }
-                                            return i;
-                                        });
-                                        if (type === 'loan') setLoans(updateFn); else setDebts(updateFn);
-                                        setTransactions(p => [{ id: Date.now(), amount, description: `החזר ל: ${item.name}`, category: 'חובות', type: type === 'loan' ? 'in' : 'out', timestamp: new Date().toISOString() }, ...p]);
-                                        setIsModalOpen(null);
-                                    }} className="space-y-6">
-                                        <h3 className="font-black text-2xl mb-2 text-center">החזר חוב ל{partialData?.item.name}</h3>
-                                        <p className="text-center text-gray-400 font-bold text-xs uppercase">יתרה פתוחה: ₪{(partialData.item.amount - (partialData.item.paidAmount || 0)).toLocaleString()}</p>
-                                        <input name="pAmount" type="number" inputMode="decimal" placeholder="סכום לתשלום עכשיו" required autoFocus className="w-full p-6 bg-gray-100 dark:bg-slate-800 rounded-3xl font-black text-center text-3xl outline-none border-4 border-transparent focus:border-blue-500 transition-all dark:text-gray-100" />
-                                        <button type="submit" className="w-full py-6 bg-green-600 text-white rounded-[2rem] font-black text-xl shadow-xl shadow-green-100 active:scale-95 transition">אשר תשלום ✅</button>
+                                    <form onSubmit={handlePartial} className="space-y-6">
+                                        <h3 className="font-black text-2xl text-center">החזר ל: {partialData.item.name}</h3>
+                                        <input name="pAmount" type="number" inputMode="decimal" placeholder="סכום לתשלום" required className="w-full p-6 bg-gray-100 dark:bg-slate-800 rounded-3xl font-black text-center text-3xl dark:text-gray-100" />
+                                        <button type="submit" className="w-full py-6 bg-green-600 text-white rounded-[2rem] font-black text-xl">אשר תשלום</button>
                                     </form>
                                 ) : (
                                     <form onSubmit={handleSaveTransaction} className="space-y-5">
-                                        <h3 className="font-black text-3xl mb-8">
-                                            {isModalOpen === 'expense' ? '💸 הוצאה' : isModalOpen === 'income' ? '💰 הכנסה' : '🤝 חוב/הלוואה'}
+                                        <h3 className="font-black text-2xl">
+                                            {isModalOpen === 'expense' ? '💸 הוצאה' : isModalOpen === 'income' ? '💰 הכנסה' : '🤝 חוב / הלוואה'}
                                         </h3>
                                         <div className="flex gap-3">
-                                            <input name="amount" type="number" inputMode="decimal" placeholder="0.00" required className="flex-[2] p-5 bg-gray-100 dark:bg-slate-800 rounded-3xl font-black text-2xl outline-none dark:text-gray-100" />
-                                            <select name="currency" className="flex-1 bg-gray-100 dark:bg-slate-800 rounded-3xl font-bold p-2 outline-none dark:text-gray-100">
-                                                <option value="ILS">₪ שקל</option><option value="USD">$ דולר</option><option value="GEL">₾ לארי</option>
+                                            <input name="amount" type="number" inputMode="decimal" placeholder="סכום" required className="flex-[2] p-5 bg-gray-100 dark:bg-slate-800 rounded-3xl font-black text-2xl dark:text-gray-100" />
+                                            <select name="currency" className="flex-1 bg-gray-100 dark:bg-slate-800 rounded-3xl font-bold p-2 dark:text-gray-100">
+                                                <option value="ILS">₪</option><option value="USD">$</option><option value="GEL">₾</option>
                                             </select>
                                         </div>
-                                        <input name="desc" placeholder="מה המטרה?" required className="w-full p-5 bg-gray-100 dark:bg-slate-800 rounded-3xl font-bold outline-none dark:text-gray-100" />
+                                        <input name="desc" placeholder="תיאור" required className="w-full p-5 bg-gray-100 dark:bg-slate-800 rounded-3xl font-bold dark:text-gray-100" />
                                         
-                                        <div className="space-y-4">
-                                            <div className="flex flex-wrap gap-2 py-2">
-                                                {categories.map(c => (
-                                                    <button key={c} type="button" onClick={() => setSelectedCategory(c)} className={`px-5 py-3 rounded-2xl text-[10px] font-black border-2 transition-all ${selectedCategory === c ? 'bg-blue-600 border-blue-600 text-white shadow-xl scale-110' : 'border-gray-100 dark:border-slate-700 text-gray-400 hover:border-blue-200'}`}>{c}</button>
-                                                ))}
-                                            </div>
-                                            {!selectedCategory && (
-                                                <input name="custom_cat" placeholder="או הקלד קטגוריה חדשה..." className="w-full p-3 border-b-4 border-blue-100 dark:border-slate-700 bg-transparent text-sm font-black outline-none focus:border-blue-500 transition-all dark:text-gray-100" />
-                                            )}
-                                        </div>
-
-                                        {isModalOpen === 'loan' && (
-                                            <div className="p-6 bg-blue-50 dark:bg-slate-800 rounded-3xl space-y-4 border-2 border-blue-100 dark:border-blue-900/50">
-                                                <label className="flex items-center gap-3 cursor-pointer">
-                                                    <input name="isDebt" type="checkbox" className="w-6 h-6 accent-blue-600" />
-                                                    <span className="text-sm font-black text-blue-800 dark:text-blue-300">זה חוב שלי למישהו אחר</span>
-                                                </label>
-                                                <div className="space-y-1">
-                                                    <p className="text-[10px] font-black text-blue-400 mr-1 uppercase tracking-widest">תאריך יעד להחזר</p>
-                                                    <input name="due" type="date" required className="w-full p-3 bg-white dark:bg-slate-700 rounded-2xl font-bold outline-none dark:text-gray-100" />
+                                        {isModalOpen !== 'loan' && (
+                                            <div className="space-y-3">
+                                                <div className="flex flex-wrap gap-2">
+                                                    {categories.map(c => (
+                                                        <button key={c} type="button" onClick={() => setSelectedCategory(c)} className={`px-4 py-2 rounded-xl text-[10px] font-black border-2 ${selectedCategory === c ? 'bg-blue-600 border-blue-600 text-white' : 'text-gray-400'}`}>{c}</button>
+                                                    ))}
                                                 </div>
+                                                {!selectedCategory && <input name="custom_cat" placeholder="או קטגוריה חדשה..." className="w-full p-2 border-b-2 bg-transparent text-sm font-bold" />}
                                             </div>
                                         )}
-                                        
-                                        <button type="submit" className="w-full py-6 bg-blue-600 text-white rounded-[2rem] font-black text-xl shadow-2xl shadow-blue-200 mt-6 active:scale-95 transition">שמור במערכת 🚀</button>
+
+                                        {isModalOpen === 'loan' && (
+                                            <div className="p-6 bg-blue-50 dark:bg-slate-800 rounded-3xl space-y-4">
+                                                <label className="flex items-center gap-3 cursor-pointer">
+                                                    <input name="isDebt" type="checkbox" className="w-6 h-6" />
+                                                    <span className="text-sm font-black text-blue-800 dark:text-blue-300">זה חוב שלי למישהו</span>
+                                                </label>
+                                                <input name="due" type="date" required className="w-full p-3 bg-white dark:bg-slate-700 rounded-2xl font-bold" />
+                                            </div>
+                                        )}
+                                        <button type="submit" className="w-full py-6 bg-blue-600 text-white rounded-[2rem] font-black text-xl shadow-xl mt-4">שמור</button>
                                     </form>
                                 )}
                             </div>
